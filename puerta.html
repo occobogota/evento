@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<!--
+  ESCÁNER DE PUERTA
+  Lee el QR, lo compara contra la lista de invitados y marca la entrada.
+  Todo vive en este celular: no hay servidor ni internet de por medio.
+
+  Necesita HTTPS para la cámara: súbelo a GitHub Pages.
+-->
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Puerta</title>
+
+  <style>
+    :root {
+      --fondo: #0B0B0B;
+      --panel: #141414;
+      --borde: #2A2A2A;
+      --texto: #F2F2F2;
+      --acento: #6B5FA8;
+      --gris: #8A8A8A;
+      --verde: #2E7D4F;
+      --rojo: #A83232;
+      --ambar: #8A6A1F;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 16px;
+      background: var(--fondo);
+      color: var(--texto);
+      font-family: system-ui, sans-serif;
+      /* Evita que un doble toque haga zoom mientras trabajas rápido */
+      touch-action: manipulation;
+    }
+
+    .barra { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 13px; color: var(--gris); }
+
+    video { width: 100%; border-radius: 8px; background: #000; display: block; }
+    canvas { display: none; }
+
+    /*
+      El veredicto ocupa media pantalla. En la puerta, de noche y con fila,
+      hay que poder leerlo de reojo sin acercarse.
+    */
+    #veredicto {
+      margin-top: 12px;
+      padding: 24px 20px;
+      border-radius: 8px;
+      background: var(--panel);
+      border: 1px solid var(--borde);
+      min-height: 150px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    #veredicto.valido   { background: var(--verde); border-color: var(--verde); }
+    #veredicto.repetido { background: var(--ambar); border-color: var(--ambar); }
+    #veredicto.negado   { background: var(--rojo);  border-color: var(--rojo); }
+
+    .estado { font-size: 30px; font-weight: 600; margin: 0 0 6px; }
+    .nombre { font-size: 22px; margin: 0 0 4px; }
+    .detalle { font-size: 14px; opacity: 0.85; margin: 0; }
+
+    input, button, textarea {
+      font-family: inherit;
+      font-size: 15px;
+      border-radius: 6px;
+    }
+
+    .manual { display: flex; gap: 8px; margin-top: 12px; }
+
+    .manual input {
+      flex: 1;
+      padding: 12px;
+      background: var(--panel);
+      color: var(--texto);
+      border: 1px solid var(--borde);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      font-family: ui-monospace, monospace;
+    }
+
+    button {
+      padding: 12px 18px;
+      background: var(--acento);
+      color: var(--texto);
+      border: none;
+    }
+
+    button.secundario { background: transparent; border: 1px solid var(--borde); color: var(--gris); font-size: 13px; padding: 10px 14px; }
+
+    details { margin-top: 20px; border-top: 1px solid var(--borde); padding-top: 16px; }
+    summary { color: var(--gris); font-size: 14px; }
+
+    textarea {
+      width: 100%;
+      margin-top: 10px;
+      padding: 12px;
+      background: var(--panel);
+      color: var(--texto);
+      border: 1px solid var(--borde);
+      font-size: 13px;
+      font-family: ui-monospace, monospace;
+    }
+
+    .aviso { font-size: 12px; color: var(--gris); margin-top: 10px; line-height: 1.5; }
+  </style>
+</head>
+
+<body>
+
+  <div class="barra">
+    <span id="contador">Sin lista cargada</span>
+    <span id="camara-estado"></span>
+  </div>
+
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
+
+  <div id="veredicto">
+    <p class="estado" id="v-estado">Listo</p>
+    <p class="nombre" id="v-nombre"></p>
+    <p class="detalle" id="v-detalle">Carga la lista y enciende la cámara.</p>
+  </div>
+
+  <div class="manual">
+    <input id="codigo-manual" placeholder="Código a mano" maxlength="6" autocomplete="off">
+    <button id="btn-manual">Validar</button>
+  </div>
+
+  <details>
+    <summary>Lista y control</summary>
+
+    <textarea id="entrada-lista" rows="6" placeholder='Pega aquí la lista del generador'></textarea>
+    <button id="btn-cargar">Cargar lista</button>
+    <button id="btn-camara" class="secundario">Encender cámara</button>
+    <button id="btn-exportar" class="secundario">Copiar quién entró</button>
+
+    <p class="aviso">
+      Las entradas se guardan en este celular. No cierres la pestaña durante el evento.
+      La lista impresa manda si algo falla.
+    </p>
+  </details>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    // ---------------------------------------------------------------
+    // La lista
+    // ---------------------------------------------------------------
+    // Un Map es como una lista de casilleros con etiqueta: le pides el
+    // código y te devuelve la persona al instante, sin recorrer todo.
+    // Con 50 da igual, pero con 500 es la diferencia entre instantáneo y lento.
+
+    let invitados = new Map();
+    let bloqueado = false;   // pausa tras cada lectura, para no leer 30 veces el mismo QR
+
+    function cargarLista(texto) {
+      try {
+        const datos = JSON.parse(texto);
+        invitados = new Map();
+
+        for (const persona of datos) {
+          invitados.set(persona.codigo.toUpperCase(), {
+            nombre: persona.nombre,
+            entro: null      // null = no ha entrado. Después guarda la hora.
+          });
+        }
+
+        actualizarContador();
+        mostrar('Lista cargada', '', invitados.size + ' invitados', '');
+        return true;
+
+      } catch (e) {
+        mostrar('Lista inválida', '', 'Revisa que hayas pegado el texto completo.', 'negado');
+        return false;
+      }
+    }
+
+    function actualizarContador() {
+      let dentro = 0;
+      for (const persona of invitados.values()) {
+        if (persona.entro) dentro++;
+      }
+      document.getElementById('contador').textContent = dentro + ' / ' + invitados.size + ' adentro';
+    }
+
+    // ---------------------------------------------------------------
+    // La decisión
+    // ---------------------------------------------------------------
+    // Tres respuestas posibles y ninguna ambigua. El de la puerta no
+    // debería tener que interpretar nada.
+
+    function validar(codigo) {
+      codigo = codigo.trim().toUpperCase();
+      if (!codigo) return;
+
+      if (invitados.size === 0) {
+        mostrar('Sin lista', '', 'Carga la lista antes de validar.', 'negado');
+        return;
+      }
+
+      const persona = invitados.get(codigo);
+
+      if (!persona) {
+        mostrar('NO ESTÁ', '', 'Código ' + codigo + '. Revisa la lista impresa.', 'negado');
+
+      } else if (persona.entro) {
+        mostrar('YA ENTRÓ', persona.nombre, 'Registrado a las ' + persona.entro, 'repetido');
+
+      } else {
+        persona.entro = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+        mostrar('ADELANTE', persona.nombre, 'Entrada registrada', 'valido');
+        actualizarContador();
+      }
+
+      // Pausa breve: sin esto, la cámara vuelve a leer el mismo QR
+      // y el "adelante" se convierte en "ya entró" en un segundo.
+      bloqueado = true;
+      setTimeout(() => { bloqueado = false; }, 2500);
+    }
+
+    function mostrar(estado, nombre, detalle, clase) {
+      document.getElementById('v-estado').textContent = estado;
+      document.getElementById('v-nombre').textContent = nombre;
+      document.getElementById('v-detalle').textContent = detalle;
+      document.getElementById('veredicto').className = clase || '';
+
+      // Vibración corta para válido, larga para problema.
+      // De noche, con música, la mano avisa antes que el ojo.
+      if (navigator.vibrate) {
+        navigator.vibrate(clase === 'valido' ? 60 : [90, 70, 90]);
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // Cámara
+    // ---------------------------------------------------------------
+
+    let escaneando = false;
+
+    async function encenderCamara() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        });
+        video.srcObject = stream;
+        document.getElementById('camara-estado').textContent = 'Cámara activa';
+        escaneando = true;
+        requestAnimationFrame(escanear);
+
+      } catch (error) {
+        mostrar('Sin cámara', '', 'Usa el código a mano. ' + error.name, 'negado');
+      }
+    }
+
+    function escanear() {
+      if (!escaneando) return;
+
+      if (!bloqueado && video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const imagen = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const leido = jsQR(imagen.data, imagen.width, imagen.height);
+
+        if (leido) validar(leido.data);
+      }
+
+      requestAnimationFrame(escanear);
+    }
+
+    // ---------------------------------------------------------------
+    // Botones
+    // ---------------------------------------------------------------
+
+    document.getElementById('btn-cargar').addEventListener('click', () => {
+      cargarLista(document.getElementById('entrada-lista').value);
+    });
+
+    document.getElementById('btn-camara').addEventListener('click', encenderCamara);
+
+    document.getElementById('btn-manual').addEventListener('click', () => {
+      const campo = document.getElementById('codigo-manual');
+      validar(campo.value);
+      campo.value = '';
+    });
+
+    // Enter también valida: en la puerta nadie busca el botón
+    document.getElementById('codigo-manual').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('btn-manual').click();
+    });
+
+    document.getElementById('btn-exportar').addEventListener('click', () => {
+      let texto = 'ENTRARON\n';
+      let faltaron = 'NO LLEGARON\n';
+
+      for (const [codigo, persona] of invitados) {
+        const linea = persona.nombre + ' (' + codigo + ')';
+        if (persona.entro) texto += linea + ' — ' + persona.entro + '\n';
+        else faltaron += linea + '\n';
+      }
+
+      navigator.clipboard.writeText(texto + '\n' + faltaron);
+      alert('Copiado. Pégalo en una nota antes de cerrar la pestaña.');
+    });
+  </script>
+
+</body>
+</html>

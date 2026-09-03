@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<!--
+  INVITACIÓN
+  Esta es la página que abre el invitado. Lee su código de la URL
+  y dibuja el QR. No hay servidor: todo pasa en su celular.
+
+  Va publicada en GitHub Pages. Se abre así:
+  https://tuusuario.github.io/evento/invitacion.html?c=ABCDEF
+-->
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Invitación</title>
+
+  <style>
+    /*
+      CAMBIA ESTOS CINCO VALORES PARA LA MARCA DE TU AMIGO.
+      Es lo único que hay que tocar para adaptar el diseño.
+    */
+    :root {
+      --fondo: #0B0B0B;
+      --texto: #F2F2F2;
+      --acento: #6B5FA8;
+      --gris: #8A8A8A;
+      --borde: #2A2A2A;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 32px 24px;
+      background: var(--fondo);
+      color: var(--texto);
+      font-family: system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .marca { font-size: 14px; letter-spacing: 3px; color: var(--gris); margin-bottom: 40px; }
+
+    h1 { font-size: 22px; font-weight: 500; margin: 0 0 6px; }
+    .fecha { color: var(--gris); font-size: 15px; margin: 0 0 32px; }
+
+    /*
+      Fondo blanco obligatorio detrás del QR. Un QR sobre fondo oscuro
+      no lo lee ninguna cámara: necesita el contraste al derecho.
+    */
+    #qr {
+      background: #FFF;
+      padding: 16px;
+      border-radius: 8px;
+      line-height: 0;
+    }
+
+    .codigo {
+      font-family: ui-monospace, monospace;
+      font-size: 26px;
+      letter-spacing: 5px;
+      margin: 24px 0 4px;
+    }
+
+    .codigo-nota { font-size: 12px; color: var(--gris); margin: 0 0 32px; }
+
+    .info {
+      max-width: 340px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--gris);
+      border-top: 1px solid var(--borde);
+      padding-top: 24px;
+    }
+
+    .info strong { color: var(--texto); font-weight: 500; }
+
+    .pie { margin-top: auto; padding-top: 48px; font-size: 12px; color: #555; }
+    .pie a { color: var(--gris); }
+
+    .fallo { color: #E08080; max-width: 340px; line-height: 1.6; }
+  </style>
+</head>
+
+<body>
+
+  <!-- Cambia esto por el nombre de la marca de tu amigo -->
+  <div class="marca">NOMBRE DE LA MARCA</div>
+
+  <div id="contenido"></div>
+
+  <div class="pie">
+    Invitaciones por <a href="https://instagram.com/occo" target="_blank" rel="noopener">OCCO</a>
+  </div>
+
+  <!-- Librería que dibuja el QR -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <script>
+    // ---------------------------------------------------------------
+    // 1. Sacar el código de la dirección
+    // ---------------------------------------------------------------
+    // De "...invitacion.html?c=ABCDEF", URLSearchParams nos saca el ABCDEF
+    // sin que tengamos que cortar el texto a mano.
+
+    const parametros = new URLSearchParams(window.location.search);
+    const codigo = (parametros.get('c') || '').trim().toUpperCase();
+
+    const contenido = document.getElementById('contenido');
+
+    // ---------------------------------------------------------------
+    // 2. Si no hay código, decir qué pasó
+    // ---------------------------------------------------------------
+    // Un error nunca se queda en blanco: el invitado tiene que saber
+    // qué hacer, y a quién escribirle.
+
+    if (!codigo) {
+      contenido.innerHTML = `
+        <p class="fallo">
+          Este link está incompleto. Abre el enlace tal como te llegó,
+          sin recortarlo, o escríbele a quien te invitó.
+        </p>`;
+    } else {
+
+      // -------------------------------------------------------------
+      // 3. Armar la invitación
+      // -------------------------------------------------------------
+
+      contenido.innerHTML = `
+        <h1>Estás invitado</h1>
+        <p class="fecha">Domingo 6 de septiembre</p>
+
+        <div id="qr"></div>
+
+        <p class="codigo">${codigo}</p>
+        <p class="codigo-nota">Si el QR no lee, dicta este código.</p>
+
+        <div class="info">
+          <p><strong>Esta invitación es personal.</strong> Sirve para una sola
+          entrada y se anula al usarse.</p>
+          <p>Toma una captura de pantalla ahora. Adentro puede no haber señal.</p>
+          <p>El evento se graba en video. Al entrar aceptas aparecer en el material.</p>
+        </div>`;
+
+      // -------------------------------------------------------------
+      // 4. Dibujar el QR
+      // -------------------------------------------------------------
+      // Lo que va dentro del QR es solo el código. Nada de nombres ni
+      // teléfonos: si alguien lo fotografía, no obtiene datos de nadie.
+
+      new QRCode(document.getElementById('qr'), {
+        text: codigo,
+        width: 220,
+        height: 220,
+        colorDark: '#000000',
+        colorLight: '#FFFFFF',
+        // Nivel H: el QR sigue leyéndose aunque esté rayado o mal impreso
+        correctLevel: QRCode.CorrectLevel.H
+      });
+    }
+  </script>
+
+</body>
+</html>
