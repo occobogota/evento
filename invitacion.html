@@ -13,11 +13,11 @@
 <title>Invitación</title>
 <style>
   :root {
-    --fondo:  #0B0B0B;
-    --texto:  #F2F2F2;
-    --acento: #6B5FA8;
-    --gris:   #8A8A8A;
-    --borde:  #2A2A2A;
+    --fondo:  #000000;
+    --texto:  #FFFFFF;
+    --acento: #FFFFFF;
+    --gris:   #888888;
+    --borde:  #333333;
   }
   *{box-sizing:border-box}
   body{margin:0;padding:32px 24px;background:var(--fondo);color:var(--texto);
@@ -53,8 +53,9 @@
 // LO ÚNICO QUE SE CAMBIA POR EVENTO
 // ===============================================================
 const EVENTO = {
-  marca:  'NOMBRE DE LA MARCA',
-  fecha:  'Domingo 6 de septiembre',
+  marca:  'DUALITY',
+  logo:   'duality.png',        // el archivo, en la misma carpeta del repo
+  fecha:  'Duality Sessions · Domingo 6 de septiembre',
   avisos: [
     '<strong>Es personal.</strong> Sirve para una sola entrada y se anula al usarse.',
     'Toma una captura ahora y sube el brillo al llegar. Adentro puede no haber señal.',
@@ -74,7 +75,12 @@ const nombre = (p.get('n') || '').trim();
 const firma  = (p.get('f') || '').trim().toUpperCase();
 const caja   = document.getElementById('contenido');
 
-document.getElementById('marca').textContent = EVENTO.marca;
+// El logo es negro sobre blanco; invert lo pasa a blanco sobre negro
+// sin necesidad de una segunda versión del archivo.
+document.getElementById('marca').innerHTML =
+  '<img src="' + EVENTO.logo + '" alt="' + EVENTO.marca + '" ' +
+  'style="width:56px;height:auto;filter:invert(1);display:block;margin:0 auto 14px">' +
+  EVENTO.marca;
 document.title = 'Invitación — ' + EVENTO.marca;
 
 if (!nombre || !firma) {
