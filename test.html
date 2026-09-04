@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<!-- PRUEBA DE CÁMARA. Solo lee QRs y reporta qué pasa. -->
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prueba de cámara</title>
+<style>
+  body{margin:0;padding:14px;background:#111;color:#eee;font-family:system-ui,sans-serif}
+  video{width:100%;max-height:40vh;object-fit:cover;border-radius:8px;background:#000;display:block;margin-top:10px}
+  canvas{display:none}
+  #log{padding:12px;background:#1c1c1c;border:1px solid #333;
+       border-radius:8px;font-family:ui-monospace,monospace;font-size:13px;
+       line-height:1.7;white-space:pre-wrap;min-height:180px}
+  .ok{color:#5ec27e} .mal{color:#e08080} .dato{color:#8a8a8a}
+  button{width:100%;padding:14px;margin-top:10px;background:#6B5FA8;color:#fff;
+         border:none;border-radius:6px;font-size:15px;font-family:inherit}
+</style>
+</head>
+<body>
+
+<div id="log">Arrancando…</div>
+<video id="v" autoplay muted playsinline></video>
+<canvas id="c"></canvas>
+<button id="reintentar">Reintentar cámara</button>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<script>
+const log = document.getElementById('log');
+const v = document.getElementById('v');
+const c = document.getElementById('c');
+const ctx = c.getContext('2d', { willReadFrequently: true });
+
+let lineas = [];
+function escribir(texto, clase){
+  lineas.unshift('<span class="' + (clase||'dato') + '">' + texto + '</span>');
+  log.innerHTML = lineas.slice(0, 12).join('\n');
+}
+
+// 1. ¿Se cargó la librería?
+escribir(typeof jsQR === 'function'
+  ? '1. Librería jsQR cargada ✓'
+  : '1. jsQR NO cargó — sin internet o el CDN está bloqueado',
+  typeof jsQR === 'function' ? 'ok' : 'mal');
+
+// 2. ¿Estamos en HTTPS?
+escribir('2. Origen: ' + location.protocol + ' — ' +
+  (window.isSecureContext ? 'seguro ✓' : 'NO seguro, la cámara no va a abrir'),
+  window.isSecureContext ? 'ok' : 'mal');
+
+let cuadros = 0, conImagen = 0, ultimo = '';
+
+async function arrancar(){
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }
+    });
+    v.srcObject = stream;
+    const s = stream.getVideoTracks()[0].getSettings();
+    escribir('3. Cámara abierta: ' + s.width + 'x' + s.height + ' (' + (s.facingMode||'?') + ') ✓','ok');
+    requestAnimationFrame(bucle);
+  }catch(e){
+    escribir('3. FALLÓ la cámara: ' + e.name + ' — ' + e.message,'mal');
+  }
+}
+
+function bucle(){
+  cuadros++;
+  if (v.readyState === v.HAVE_ENOUGH_DATA){
+    conImagen++;
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    ctx.drawImage(v,0,0,c.width,c.height);
+    const img = ctx.getImageData(0,0,c.width,c.height);
+    const r = jsQR(img.data, img.width, img.height);
+    if (r && r.data !== ultimo){
+      ultimo = r.data;
+      escribir('LEÍDO: ' + r.data, 'ok');
+      if (navigator.vibrate) navigator.vibrate(80);
+    }
+  }
+  if (cuadros % 30 === 0){
+    escribir('ciclos ' + cuadros + ' · con imagen ' + conImagen +
+             (conImagen === 0 ? ' — el video no entrega datos' : ''));
+  }
+  requestAnimationFrame(bucle);
+}
+
+document.getElementById('reintentar').addEventListener('click', arrancar);
+arrancar();
+</script>
+</body>
+</html>
