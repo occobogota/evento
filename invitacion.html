@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<!--
+  INVITACIÓN
+  Lee el nombre y la firma de la dirección y dibuja el QR.
+  No verifica nada: eso lo hace la puerta. Aquí solo se muestra.
+
+  CAMBIA PARA CADA MARCA: los colores de abajo, el nombre y la fecha.
+-->
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invitación</title>
+<style>
+  :root {
+    --fondo:  #0B0B0B;
+    --texto:  #F2F2F2;
+    --acento: #6B5FA8;
+    --gris:   #8A8A8A;
+    --borde:  #2A2A2A;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:32px 24px;background:var(--fondo);color:var(--texto);
+       font-family:system-ui,sans-serif;min-height:100vh;display:flex;
+       flex-direction:column;align-items:center;text-align:center}
+  .marca{font-size:14px;letter-spacing:3px;color:var(--gris);margin-bottom:36px}
+  h1{font-size:22px;font-weight:500;margin:0 0 4px}
+  .invitado{font-size:17px;color:var(--acento);margin:0 0 4px}
+  .fecha{color:var(--gris);font-size:15px;margin:0 0 30px}
+  /* Fondo blanco obligatorio: un QR sobre oscuro no lo lee ninguna cámara */
+  #qr{background:#FFF;padding:16px;border-radius:8px;line-height:0}
+  .codigo{font-family:ui-monospace,monospace;font-size:15px;letter-spacing:2px;margin:22px 0 4px;word-break:break-all;max-width:300px}
+  .codigo-nota{font-size:12px;color:var(--gris);margin:0 0 30px}
+  .info{max-width:340px;font-size:14px;line-height:1.6;color:var(--gris);
+        border-top:1px solid var(--borde);padding-top:22px}
+  .info strong{color:var(--texto);font-weight:500}
+  .pie{margin-top:auto;padding-top:44px;font-size:12px;color:#555}
+  .pie a{color:var(--gris)}
+  .fallo{color:#E08080;max-width:340px;line-height:1.6}
+</style>
+</head>
+<body>
+
+<div class="marca" id="marca"></div>
+
+<div id="contenido"></div>
+
+<div class="pie">Invitaciones por <a href="https://instagram.com/occo" target="_blank" rel="noopener">OCCO</a></div>
+
+<script src="qrcode.min.js"></script>
+<script>
+// ===============================================================
+// LO ÚNICO QUE SE CAMBIA POR EVENTO
+// ===============================================================
+const EVENTO = {
+  marca:  'NOMBRE DE LA MARCA',
+  fecha:  'Domingo 6 de septiembre',
+  avisos: [
+    '<strong>Es personal.</strong> Sirve para una sola entrada y se anula al usarse.',
+    'Toma una captura ahora y sube el brillo al llegar. Adentro puede no haber señal.',
+    'El evento se graba en video. Al entrar aceptas aparecer en el material.'
+  ]
+};
+// Los colores están en el bloque :root de arriba.
+// ===============================================================
+
+function normalizar(nombre) {
+  return nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/\s+/g, ' ').trim();
+}
+
+const p = new URLSearchParams(window.location.search);
+const nombre = (p.get('n') || '').trim();
+const firma  = (p.get('f') || '').trim().toUpperCase();
+const caja   = document.getElementById('contenido');
+
+document.getElementById('marca').textContent = EVENTO.marca;
+document.title = 'Invitación — ' + EVENTO.marca;
+
+if (!nombre || !firma) {
+  caja.innerHTML = '<p class="fallo">Este link está incompleto. Ábrelo tal como te llegó, ' +
+                   'sin recortarlo, o escríbele a quien te invitó.</p>';
+} else {
+  // Esto es lo que va dentro del QR: nombre normalizado y firma.
+  // Sin teléfonos ni datos: si alguien fotografía la pantalla, no obtiene nada.
+  const contenido = normalizar(nombre) + '|' + firma;
+
+  caja.innerHTML =
+    '<h1>Estás invitado</h1>' +
+    '<p class="invitado">' + nombre + '</p>' +
+    '<p class="fecha">' + EVENTO.fecha + '</p>' +
+    '<div id="qr"></div>' +
+    '<p class="codigo">' + normalizar(nombre) + '-' + firma + '</p>' +
+    '<p class="codigo-nota">Si el QR no lee, dicta esto en la puerta.</p>' +
+    '<div class="info">' +
+      EVENTO.avisos.map(a => '<p>' + a + '</p>').join('') +
+    '</div>';
+
+  new QRCode(document.getElementById('qr'), {
+    text: contenido,
+    width: 220, height: 220,
+    colorDark: '#000000', colorLight: '#FFFFFF',
+    correctLevel: QRCode.CorrectLevel.M
+  });
+}
+</script>
+</body>
+</html>

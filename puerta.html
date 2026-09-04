@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<!--
+  PUERTA
+  Verifica la firma de cada invitación. No necesita lista ni señal.
+  Se abre con el secreto en el link:  puerta.html#s=TUSECRETO
+-->
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Puerta</title>
+<style>
+  :root{--fondo:#0B0B0B;--panel:#141414;--borde:#2A2A2A;--texto:#F2F2F2;
+        --acento:#6B5FA8;--gris:#8A8A8A;--verde:#2E7D4F;--rojo:#A83232;--ambar:#8A6A1F}
+  *{box-sizing:border-box}
+  body{margin:0;padding:14px;background:var(--fondo);color:var(--texto);
+       font-family:system-ui,sans-serif;touch-action:manipulation}
+  .barra{display:flex;justify-content:space-between;font-size:13px;color:var(--gris);margin-bottom:10px}
+  video{width:100%;border-radius:8px;background:#000;display:block}
+  canvas{display:none}
+  #veredicto{margin-top:12px;padding:22px 18px;border-radius:8px;background:var(--panel);
+       border:1px solid var(--borde);min-height:140px;display:flex;flex-direction:column;justify-content:center}
+  #veredicto.valido{background:var(--verde);border-color:var(--verde)}
+  #veredicto.repetido{background:var(--ambar);border-color:var(--ambar)}
+  #veredicto.negado{background:var(--rojo);border-color:var(--rojo)}
+  .estado{font-size:30px;font-weight:600;margin:0 0 6px}
+  .nombre{font-size:22px;margin:0 0 4px}
+  .detalle{font-size:14px;opacity:.85;margin:0}
+  .manual{display:flex;gap:8px;margin-top:12px}
+  .manual input{flex:1;padding:12px;background:var(--panel);color:var(--texto);
+       border:1px solid var(--borde);border-radius:6px;font-size:15px;
+       text-transform:uppercase;font-family:ui-monospace,monospace}
+  button{padding:12px 18px;background:var(--acento);color:var(--texto);border:none;
+       border-radius:6px;font-family:inherit;font-size:15px}
+  button.secundario{background:transparent;border:1px solid var(--borde);color:var(--gris);font-size:13px;padding:9px 14px}
+  details{margin-top:18px;border-top:1px solid var(--borde);padding-top:14px}
+  summary{color:var(--gris);font-size:14px}
+  .diag{font-size:12px;color:var(--gris);margin-top:10px;font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+
+<div class="barra"><span id="contador">0 adentro</span><span id="pulso"></span></div>
+
+<video id="video" autoplay muted playsinline></video>
+<canvas id="canvas"></canvas>
+
+<div id="veredicto">
+  <p class="estado" id="v-estado">Iniciando</p>
+  <p class="nombre" id="v-nombre"></p>
+  <p class="detalle" id="v-detalle">Pidiendo permiso de cámara.</p>
+</div>
+
+<div class="manual">
+  <input id="manual" placeholder="NOMBRE-CODIGO" autocomplete="off">
+  <button id="btn-manual">Validar</button>
+</div>
+
+<details>
+  <summary>Control</summary>
+  <button id="btn-exportar" class="secundario">Copiar quién entró</button>
+  <button id="btn-reiniciar" class="secundario">Reiniciar</button>
+  <p class="diag" id="diag">—</p>
+</details>
+
+<script src="jsQR.js"></script>
+<script>
+const LETRAS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+// La clave incluye parte del secreto, así cada evento guarda sus
+// entradas por separado y el registro anterior no contamina el nuevo.
+let CLAVE = 'entradas';
+
+const video  = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d', { willReadFrequently: true });
+
+// El secreto viene después del # del link. Al ir en el fragmento,
+// el navegador nunca lo envía a ningún servidor.
+const SECRETO = new URLSearchParams(location.hash.slice(1)).get('s') || '';
+CLAVE = 'entradas-' + SECRETO.slice(0, 10);
+
+let entradas  = {};
+let bloqueado = false;
+let cuadros   = 0;
+
+try { entradas = JSON.parse(localStorage.getItem(CLAVE) || '{}'); } catch (e) {}
+
+function normalizar(n){
+  return n.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
+}
+
+// Misma cuenta que hace el generador. Si el resultado coincide con la
+// firma que trae el QR, la invitación salió de ti.
+async function firmar(nombre){
+  const enc = new TextEncoder();
+  const clave = await crypto.subtle.importKey('raw', enc.encode(SECRETO),
+    { name:'HMAC', hash:'SHA-256' }, false, ['sign']);
+  const huella = new Uint8Array(await crypto.subtle.sign('HMAC', clave, enc.encode(normalizar(nombre))));
+  let codigo = '';
+  for (let i = 0; i < 6; i++) codigo += LETRAS[huella[i] % LETRAS.length];
+  return codigo;
+}
+
+function contar(){
+  document.getElementById('contador').textContent = Object.keys(entradas).length + ' adentro';
+}
+
+async function validar(texto){
+  // Acepta lo del QR (NOMBRE|FIRMA) y lo tecleado (NOMBRE-FIRMA).
+  // Cortamos por el ÚLTIMO separador, no por todos: si partiéramos por
+  // cada guion, un apellido como GARCIA-PEÑA quedaría mutilado y la
+  // firma no coincidiría.
+  const t = texto.trim().toUpperCase();
+  const corte = Math.max(t.lastIndexOf('|'), t.lastIndexOf('-'));
+  const nombre = corte > 0 ? t.slice(0, corte).trim() : '';
+  const firma  = corte > 0 ? t.slice(corte + 1).trim() : '';
+
+  if (!nombre || !firma) {
+    mostrar('NO VÁLIDA','','Código incompleto.','negado');
+  } else if (await firmar(nombre) !== firma) {
+    mostrar('NO VÁLIDA', nombre, 'La firma no coincide.', 'negado');
+  } else if (entradas[nombre]) {
+    mostrar('YA ENTRÓ', nombre, 'Registrado a las ' + entradas[nombre], 'repetido');
+  } else {
+    entradas[nombre] = new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
+    try { localStorage.setItem(CLAVE, JSON.stringify(entradas)); } catch(e) {}
+    contar();
+    mostrar('ADELANTE', nombre, 'Entrada registrada', 'valido');
+  }
+
+  bloqueado = true;
+  setTimeout(() => { bloqueado = false; }, 2500);
+}
+
+function mostrar(estado,nombre,detalle,clase){
+  document.getElementById('v-estado').textContent  = estado;
+  document.getElementById('v-nombre').textContent  = nombre;
+  document.getElementById('v-detalle').textContent = detalle;
+  document.getElementById('veredicto').className   = clase || '';
+  if (navigator.vibrate) navigator.vibrate(clase === 'valido' ? 60 : [90,70,90]);
+}
+
+async function encenderCamara(){
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }
+    });
+    video.srcObject = stream;
+    const cfg = stream.getVideoTracks()[0].getSettings();
+    document.getElementById('diag').textContent = 'Cámara ' + cfg.width + 'x' + cfg.height;
+    mostrar('Listo','','Apunta al QR.','');
+    requestAnimationFrame(escanear);
+  }catch(e){
+    mostrar('Sin cámara','', e.name + '. Usa el código a mano.','negado');
+  }
+}
+
+function escanear(){
+  if (!bloqueado && video.readyState === video.HAVE_ENOUGH_DATA){
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    const img = ctx.getImageData(0,0,canvas.width,canvas.height);
+    const leido = jsQR(img.data,img.width,img.height,{inversionAttempts:'dontInvert'});
+    if (leido) validar(leido.data);
+    if (++cuadros % 15 === 0) document.getElementById('pulso').textContent = 'leyendo ' + cuadros;
+  }
+  requestAnimationFrame(escanear);
+}
+
+document.getElementById('btn-manual').addEventListener('click',()=>{
+  const c = document.getElementById('manual');
+  validar(c.value); c.value='';
+});
+document.getElementById('manual').addEventListener('keydown',e=>{
+  if(e.key==='Enter') document.getElementById('btn-manual').click();
+});
+document.getElementById('btn-exportar').addEventListener('click',()=>{
+  let t='ENTRARON\n';
+  for(const [n,h] of Object.entries(entradas)) t += n + ' — ' + h + '\n';
+  navigator.clipboard.writeText(t);
+  alert('Copiado. Pégalo en una nota.');
+});
+document.getElementById('btn-reiniciar').addEventListener('click',()=>{
+  if(!confirm('Esto borra todas las entradas registradas. ¿Seguro?')) return;
+  entradas={}; localStorage.removeItem(CLAVE); contar();
+  mostrar('Reiniciado','','Nadie registrado.','');
+});
+
+contar();
+if (!SECRETO) {
+  mostrar('Falta el secreto','','Abre el link completo, con el # al final.','negado');
+} else {
+  encenderCamara();
+}
+</script>
+</body>
+</html>
