@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<!--
+  GENERADOR
+  Crea invitaciones firmadas. No hay lista que sincronizar:
+  la firma es la que prueba que la invitación es auténtica.
+
+  Va publicado junto con los otros dos archivos.
+  El secreto NO queda guardado en ningún lado: lo escribes cada vez.
+-->
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generador</title>
+<style>
+  :root { --fondo:#0B0B0B; --panel:#141414; --borde:#2A2A2A; --texto:#F2F2F2;
+          --acento:#6B5FA8; --gris:#8A8A8A; --verde:#4A9E6A; }
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;background:var(--fondo);color:var(--texto);
+       font-family:system-ui,sans-serif;font-size:15px;line-height:1.5;max-width:860px;margin-inline:auto}
+  h1{font-size:20px;font-weight:500;margin:0 0 4px}
+  h2{font-size:15px;font-weight:500;margin:26px 0 8px}
+  .nota{color:var(--gris);font-size:13px;margin:0 0 20px}
+  label{display:block;font-size:13px;color:var(--gris);margin-bottom:6px}
+  textarea,input{width:100%;padding:12px;background:var(--panel);color:var(--texto);
+       border:1px solid var(--borde);border-radius:6px;font-family:inherit;font-size:14px;line-height:1.5}
+  textarea{resize:vertical}
+  input:focus,textarea:focus{outline:2px solid var(--acento);outline-offset:-1px}
+  button{padding:12px 20px;font-size:15px;font-family:inherit;background:var(--acento);
+       color:var(--texto);border:none;border-radius:6px;margin-top:12px}
+  button.secundario{background:transparent;border:1px solid var(--borde);color:var(--gris);font-size:13px;padding:9px 14px}
+  .fila-secreto{display:flex;gap:8px;align-items:flex-start}
+  .fila-secreto input{font-family:ui-monospace,monospace}
+  .aviso{background:#2A2010;border:1px solid #5A4520;color:#D9B978;padding:12px;
+       border-radius:6px;font-size:13px;margin-top:18px;line-height:1.6}
+  .link-puerta{background:var(--panel);border:1px solid var(--borde);padding:12px;
+       border-radius:6px;font-family:ui-monospace,monospace;font-size:12px;
+       word-break:break-all;margin-top:10px;color:var(--gris)}
+  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}
+  th{text-align:left;font-weight:500;color:var(--gris);font-size:12px;padding:8px;border-bottom:1px solid var(--borde)}
+  td{padding:10px 8px;border-bottom:1px solid var(--borde);vertical-align:middle}
+  tr.enviado{opacity:.45}
+  .codigo{font-family:ui-monospace,monospace;letter-spacing:1px}
+  .estado{font-size:12px;color:var(--gris)}
+  td a{display:inline-block;padding:7px 14px;background:var(--acento);color:var(--texto);
+       text-decoration:none;border-radius:5px;font-size:13px}
+  td a.ver{background:transparent;border:1px solid var(--borde);color:var(--gris)}
+  .error-fila{color:#E08080;font-size:12px}
+  #salida{display:none}
+</style>
+</head>
+<body>
+
+<h1>Generador de invitaciones</h1>
+<p class="nota">Cada invitación se firma con tu secreto. El escáner la verifica sin necesitar ninguna lista.</p>
+
+<h2>1. Secreto</h2>
+<label for="secreto">La misma clave que usa el escáner. Guárdala: sin ella no puedes generar más invitaciones válidas.</label>
+<div class="fila-secreto">
+  <input id="secreto" type="text" placeholder="Pega tu secreto o genera uno nuevo">
+  <button id="btn-secreto" class="secundario" style="margin-top:0;white-space:nowrap">Generar</button>
+</div>
+<div class="link-puerta" id="link-puerta">El link de la puerta aparece aquí cuando pongas el secreto.</div>
+
+<h2>2. Dirección de las páginas</h2>
+<label for="base">La carpeta donde publicaste los archivos, sin el nombre del archivo.</label>
+<input id="base" type="text" value="https://occobogota.github.io/evento/">
+
+<h2>3. Invitados</h2>
+<label for="lista">Uno por línea, empezando por el nombre. Después el correo y el teléfono, en cualquier orden, y los que tengas.</label>
+<textarea id="lista" rows="7" placeholder="Camilo Del Real, 3001234567, camilo@ejemplo.com&#10;Daniela Delgado, 300 765 4321"></textarea>
+
+<h2>4. Mensaje</h2>
+<label for="plantilla">Usa {nombre}, {link} y {codigo}.</label>
+<textarea id="plantilla" rows="5">Hola {nombre}, quedas invitado al evento del domingo 6.
+
+Esta es tu entrada personal: {link}
+
+Si el QR no lee, tu código es {codigo}. El evento se graba en video, así que al entrar aceptas aparecer en el material.</textarea>
+
+<button id="generar">Generar invitaciones</button>
+
+<div id="salida">
+  <div class="aviso" id="aviso"></div>
+  <table>
+    <thead><tr><th>Invitado</th><th>Código</th><th></th><th></th><th></th></tr></thead>
+    <tbody id="tabla"></tbody>
+  </table>
+  <button id="btn-csv" class="secundario">Descargar CSV para correo</button>
+  <button id="btn-copiar" class="secundario">Copiar lista de control</button>
+</div>
+
+<script>
+const LETRAS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+// ---------------------------------------------------------------
+// Normalizar el nombre
+// ---------------------------------------------------------------
+// La firma se calcula sobre el nombre, así que las dos puntas tienen
+// que verlo idéntico. Quitamos tildes, mayúsculas y espacios de más.
+
+function normalizar(nombre) {
+  return nombre
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // quita tildes
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// ---------------------------------------------------------------
+// Firmar
+// ---------------------------------------------------------------
+// HMAC: una huella del nombre hecha con tu secreto. Sin el secreto
+// no se puede calcular, y con ella no se puede deducir el secreto.
+
+async function firmar(nombre, secreto) {
+  const enc = new TextEncoder();
+  const clave = await crypto.subtle.importKey(
+    'raw', enc.encode(secreto),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const huella = await crypto.subtle.sign('HMAC', clave, enc.encode(normalizar(nombre)));
+  const bytes = new Uint8Array(huella);
+
+  let codigo = '';
+  for (let i = 0; i < 6; i++) codigo += LETRAS[bytes[i] % LETRAS.length];
+  return codigo;
+}
+
+function normalizarNumero(texto) {
+  let n = (texto || '').replace(/\D/g, '');
+  if (n.length === 10 && n.startsWith('3')) n = '57' + n;
+  return (n.length === 12 && n.startsWith('57')) ? n : null;
+}
+
+// ---------------------------------------------------------------
+// Secreto y link de la puerta
+// ---------------------------------------------------------------
+
+document.getElementById('btn-secreto').addEventListener('click', () => {
+  const valores = new Uint32Array(20);
+  crypto.getRandomValues(valores);
+  let s = '';
+  for (const v of valores) s += LETRAS[v % LETRAS.length];
+  document.getElementById('secreto').value = s;
+  pintarLinkPuerta();
+});
+
+function pintarLinkPuerta() {
+  const s = document.getElementById('secreto').value.trim();
+  const base = document.getElementById('base').value.trim();
+  const caja = document.getElementById('link-puerta');
+
+  if (!s) { caja.textContent = 'El link de la puerta aparece aquí cuando pongas el secreto.'; return; }
+
+  // El secreto va después del # : el navegador no lo manda a ningún servidor
+  caja.textContent = base + 'puerta.html#s=' + encodeURIComponent(s);
+}
+
+document.getElementById('secreto').addEventListener('input', pintarLinkPuerta);
+document.getElementById('base').addEventListener('input', pintarLinkPuerta);
+
+// ---------------------------------------------------------------
+// Generar
+// ---------------------------------------------------------------
+
+let invitados = [];
+// Se fija al generar. Si la leyéramos del formulario al marcar enviado,
+// tocar el campo del secreto mandaría las marcas a otra clave.
+let claveMarcas = '';
+
+document.getElementById('generar').addEventListener('click', async () => {
+  const secreto = document.getElementById('secreto').value.trim();
+  if (!secreto) { alert('Falta el secreto.'); return; }
+
+  const lineas = document.getElementById('lista').value
+    .split('\n').map(l => l.trim()).filter(l => l);
+
+  if (!lineas.length) { alert('La lista está vacía.'); return; }
+
+  invitados = [];
+  const vistos = new Set();
+  claveMarcas = 'enviados-' + secreto.slice(0, 10);
+  const marcas = JSON.parse(localStorage.getItem(claveMarcas) || '{}');
+  let repetidos = 0;
+
+  for (const linea of lineas) {
+    // El orden de los campos no importa: el que lleve @ es el correo,
+    // y el que sean puros dígitos es el teléfono. Así funciona igual con
+    // "Nombre, correo" que con "Nombre, número, correo".
+    const partes = linea.split(',').map(p => p.trim());
+    const nombre = partes[0] || '';
+    const clave  = normalizar(nombre);
+
+    let correo = '', numero = null;
+    for (const campo of partes.slice(1)) {
+      if (!campo) continue;
+      if (campo.includes('@')) correo = campo;
+      else if (normalizarNumero(campo)) numero = normalizarNumero(campo);
+    }
+
+    if (vistos.has(clave)) repetidos++;
+    vistos.add(clave);
+
+    invitados.push({
+      nombre, correo, numero,
+      duplicado: invitados.some(i => normalizar(i.nombre) === clave),
+      codigo: await firmar(nombre, secreto),
+      enviado: !!marcas[clave]
+    });
+  }
+
+  const sinCorreo = invitados.filter(i => !i.correo).length;
+  const conCorreo = invitados.length - sinCorreo;
+
+  const aviso = document.getElementById('aviso');
+  aviso.innerHTML =
+    '<strong>' + invitados.length + ' invitados · ' + conCorreo + ' con correo' +
+    (sinCorreo ? ' · ' + sinCorreo + ' SIN CORREO (no recibirán nada por ese canal)' : '') +
+    '</strong><br>' +
+    (repetidos > 0
+    ? '<strong>Hay ' + repetidos + ' nombre(s) repetido(s).</strong> Dos personas con el mismo nombre reciben el mismo código y la segunda saldrá como que ya entró. Diferéncialos antes de enviar, por ejemplo agregando el apellido.'
+    : 'Estas invitaciones sirven mientras uses el mismo secreto. Puedes agregar gente después: genera de nuevo con el mismo secreto y los códigos anteriores siguen valiendo.');
+
+  document.getElementById('salida').style.display = 'block';
+  pintar();
+});
+
+function pintar() {
+  const base = document.getElementById('base').value.trim();
+  const plantilla = document.getElementById('plantilla').value;
+  const tabla = document.getElementById('tabla');
+  tabla.innerHTML = '';
+
+  invitados.forEach((inv, i) => {
+    const fila = document.createElement('tr');
+
+    const link = base + 'invitacion.html?n=' + encodeURIComponent(inv.nombre) + '&f=' + inv.codigo;
+
+    const mensaje = plantilla
+      .replaceAll('{nombre}', inv.nombre)
+      .replaceAll('{link}', link)
+      .replaceAll('{codigo}', normalizar(inv.nombre) + '-' + inv.codigo);
+
+    // Sin teléfono no hay WhatsApp, pero el correo y la previsualización
+    // siguen sirviendo. Antes la fila se descartaba entera y engañaba.
+    const celdaWa = inv.numero
+      ? '<td><a href="https://wa.me/' + inv.numero + '?text=' + encodeURIComponent(mensaje) +
+        '" target="_blank" rel="noopener">Enviar</a></td>'
+      : '<td class="estado">sin tel.</td>';
+
+    const marcas = [];
+    if (inv.duplicado) marcas.push('repetido');
+    if (!inv.correo)   marcas.push('sin correo');
+
+    fila.className = inv.enviado ? 'enviado' : '';
+    fila.innerHTML =
+      '<td>' + inv.nombre +
+        (marcas.length ? ' <span class="error-fila">' + marcas.join(', ') + '</span>' : '') + '</td>' +
+      '<td class="codigo">' + inv.codigo + '</td>' +
+      celdaWa +
+      '<td><a class="ver" href="' + link + '" target="_blank" rel="noopener">Ver</a></td>' +
+      '<td class="estado">' + (inv.enviado ? 'Enviado' : '') + '</td>';
+
+    const botonWa = fila.querySelector('a[href^="https://wa.me"]');
+    if (botonWa) botonWa.addEventListener('click', () => {
+      invitados[i].enviado = true;
+      const marcas = JSON.parse(localStorage.getItem(claveMarcas) || '{}');
+      marcas[normalizar(inv.nombre)] = true;
+      localStorage.setItem(claveMarcas, JSON.stringify(marcas));
+      setTimeout(pintar, 100);
+    });
+
+    tabla.appendChild(fila);
+  });
+}
+
+// CSV para subir a Brevo. Las columnas se vuelven variables que puedes
+// insertar en la plantilla del correo: {{contact.NOMBRE}}, {{contact.LINK}}.
+// El correo va en la tercera columna: agrégalo a la lista como
+// "Nombre, número, correo" y aquí sale.
+document.getElementById('btn-csv').addEventListener('click', () => {
+  const base = document.getElementById('base').value.trim();
+
+  // Las comillas dentro de un campo se escriben dobles, o el CSV se parte
+  const esc = t => '"' + String(t || '').replace(/"/g, '""') + '"';
+
+  const filas = invitados.map(i => {
+    const link = base + 'invitacion.html?n=' + encodeURIComponent(i.nombre) + '&f=' + i.codigo;
+    return [esc(i.nombre), esc(i.correo), esc(link),
+            esc(normalizar(i.nombre) + '-' + i.codigo)].join(',');
+  });
+
+  const csv = 'NOMBRE,EMAIL,LINK,CODIGO\n' + filas.join('\n');
+
+  // El BOM del principio hace que Excel abra bien las tildes
+  const archivo = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const enlace = document.createElement('a');
+  enlace.href = URL.createObjectURL(archivo);
+  enlace.download = 'invitados.csv';
+  enlace.click();
+});
+
+// Lista de control: para saber quién falta por llegar, no para el escáner
+// Lista de control para imprimir.
+// Va TODO el mundo, con o sin correo y con o sin teléfono: este papel
+// es el último recurso en la puerta y no puede excluir a nadie.
+// Y el código va completo (NOMBRE-FIRMA), que es lo que hay que teclear
+// en el escáner. Solo la firma de 6 caracteres da "código incompleto".
+document.getElementById('btn-copiar').addEventListener('click', () => {
+  const lineas = invitados
+    .map(i => ({
+      orden: normalizar(i.nombre),
+      linea: i.nombre + '   ' + normalizar(i.nombre) + '-' + i.codigo +
+             (i.correo ? '' : '   (sin correo)')
+    }))
+    .sort((a, b) => a.orden.localeCompare(b.orden))
+    .map(x => x.linea);
+
+  const texto =
+    'LISTA DE CONTROL — ' + invitados.length + ' invitados\n' +
+    'Teclear el código completo, con el guion.\n\n' +
+    lineas.join('\n');
+
+  navigator.clipboard.writeText(texto);
+  alert('Lista copiada (' + invitados.length + ' invitados). Pégala en un documento e imprímela.');
+});
+</script>
+</body>
+</html>
